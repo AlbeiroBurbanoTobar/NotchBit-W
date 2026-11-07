@@ -16,6 +16,8 @@ public interface IIslandModule
 
     /// <summary>Whether the module has something to show beside the resting island (for example, music playing).</summary>
     bool HasCompactActivity => false;
+    /// <summary>Raised on the UI thread when <see cref="HasCompactActivity"/> changes.</summary>
+    event Action? CompactActivityChanged { add { } remove { } }
     /// <summary>Content shown left of the resting island while <see cref="HasCompactActivity"/> is true.</summary>
     UIElement? CreateCompactLeading() => null;
     /// <summary>Content shown right of the resting island while <see cref="HasCompactActivity"/> is true.</summary>

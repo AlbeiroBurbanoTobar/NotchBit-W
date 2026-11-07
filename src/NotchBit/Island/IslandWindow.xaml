@@ -7,7 +7,8 @@
 
     <!--
         The window is transparent. At rest only a thin white line shows (like the gesture bar on a
-        phone); on hover the line grows into the black island. The whole window is the hover target.
+        phone), or a small black pill while a module has something to show; on hover it grows into
+        the black island. The whole window is the hover target.
     -->
     <Grid
         x:Name="Root"
@@ -22,8 +23,7 @@
         <Border
             x:Name="Pill"
             HorizontalAlignment="Center"
-            VerticalAlignment="Top"
-            IsHitTestVisible="False">
+            VerticalAlignment="Top">
             <Border.Background>
                 <SolidColorBrush x:Name="PillBrush" />
             </Border.Background>
@@ -31,15 +31,30 @@
                 <TranslateTransform x:Name="PillShift" />
             </Border.RenderTransform>
 
-            <!-- Laid out at the full open size and faded in, so it never reflows while the pill grows. -->
-            <Grid
-                x:Name="ContentHost"
-                Width="560"
-                Height="200"
-                HorizontalAlignment="Center"
-                VerticalAlignment="Top"
-                Opacity="0"
-                Visibility="Collapsed" />
+            <Grid>
+                <!-- Laid out at the full open size and faded in, so it never reflows while the pill grows. -->
+                <Grid
+                    x:Name="ContentHost"
+                    Width="560"
+                    Height="230"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Opacity="0"
+                    Visibility="Collapsed" />
+
+                <!-- What a module shows beside the resting island: left and right, with the middle left empty. -->
+                <Grid
+                    x:Name="CompactHost"
+                    Width="240"
+                    Height="32"
+                    HorizontalAlignment="Center"
+                    VerticalAlignment="Top"
+                    Opacity="0"
+                    Visibility="Collapsed">
+                    <ContentPresenter x:Name="CompactLeading" HorizontalAlignment="Left" VerticalAlignment="Center" Margin="12,0,0,0" />
+                    <ContentPresenter x:Name="CompactTrailing" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,14,0" />
+                </Grid>
+            </Grid>
         </Border>
     </Grid>
 </Window>

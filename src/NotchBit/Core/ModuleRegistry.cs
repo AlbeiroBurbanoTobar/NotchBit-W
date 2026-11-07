@@ -11,7 +11,13 @@ public sealed class ModuleRegistry
         AllModules = modules.ToList();
         _settings = settings;
         _disabled = [.. settings.DisabledModules];
+
+        foreach (IIslandModule module in AllModules)
+            module.CompactActivityChanged += () => CompactActivityChanged?.Invoke();
     }
+
+    /// <summary>Raised on the UI thread when any module starts or stops having something to show beside the resting island.</summary>
+    public event Action? CompactActivityChanged;
 
     public IReadOnlyList<IIslandModule> AllModules { get; }
 

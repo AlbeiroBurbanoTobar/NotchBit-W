@@ -3,7 +3,7 @@
 Windows version of [BitNotch](https://github.com/AlbeiroBurbanoTobar/BitNotch): a floating "island" at the top center of the
 screen that will show what is playing and keep a shelf of files.
 
-Status: **phase 2** — the island, the tray icon and the module system. Music and the shelf come next.
+Status: **phase 3** — the island, the module system and music. The real shelf comes next.
 
 ## What works
 
@@ -22,7 +22,13 @@ Status: **phase 2** — the island, the tray icon and the module system. Music a
   Dragging files over the island opens it and hands them to the first module that accepts file
   drops, switching to its tab. Which modules are turned off is kept in
   `%LOCALAPPDATA%\NotchBit\settings.json` (`DisabledModules`); there is no settings window yet.
-  The Música and Shelf tabs are placeholders for now.
+  The Shelf tab is a placeholder for now.
+- **Music**: shows the current track, artist and artwork from whatever Windows reports as Now
+  Playing (Spotify, browsers, Apple Music, ...), with play/pause, previous, next and a seekable
+  progress bar. Previous, next and seeking are disabled where the player does not support them.
+  While something plays, the resting line widens into a small black pill with the artwork on the
+  left and animated bars on the right; the bars take the dominant color of the artwork and are
+  decorative. It goes back to the line a moment after playback stops.
 
 ## Requirements
 
@@ -49,7 +55,8 @@ Use `-p:Platform=ARM64` on ARM devices.
 |---|---|
 | `src/NotchBit/App` | Tray icon |
 | `src/NotchBit/Core` | `IIslandModule`, `ModuleRegistry`, JSON `SettingsStore` |
-| `src/NotchBit/Modules` | The modules (placeholders until phases 3 and 4) |
+| `src/NotchBit/Modules/Music` | Now Playing provider (GSMTC), controller, player and compact views, artwork color |
+| `src/NotchBit/Modules` | The other modules (the shelf is a placeholder until phase 4) |
 | `src/NotchBit/Island` | Island window, its animation, the tabs, and the Win32 calls WinUI does not wrap |
 | `src/NotchBit/Assets` | App icon |
 
@@ -63,6 +70,11 @@ WinUI 3 has no fully frameless, transparent window out of the box. The island co
 - a window subclass that answers `WM_NCCALCSIZE` with no non-client area, because the presenter
   keeps putting back a 3px dialog frame;
 - `DWMWA_WINDOW_CORNER_PREFERENCE` and `DWMWA_BORDER_COLOR` to drop Windows 11's own rounding and border.
+
+Music uses the Windows System Media Transport Controls (`GlobalSystemMediaTransportControlsSessionManager`),
+so it needs no permissions and no per-player code. Players report their position rarely, so the
+controller estimates it between readings, and keeps a command's expected effect for a couple of
+seconds so the play button does not flicker back on a stale reading.
 
 Fullscreen detection uses `SHQueryUserNotificationState`, the signal Windows itself uses to hold
 back notifications, polled twice a second. The same window subclass listens for `WM_DISPLAYCHANGE`
