@@ -1,9 +1,10 @@
+using System.Numerics;
 using Microsoft.UI;
+using Microsoft.UI.Composition;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Animation;
-using Windows.UI;
 
 namespace NotchBit.Modules.Music;
 
@@ -12,6 +13,8 @@ internal static class MusicCompactViews
 {
     private const double ArtworkSize = 22;
     private const int BarCount = 4;
+    private const float BarWidth = 3;
+    private const float BarHeight = 16;
 
     /// <summary>The track's artwork, or a music note until it loads.</summary>
     public static UIElement CreateArtwork(MusicController controller)
@@ -36,36 +39,19 @@ internal static class MusicCompactViews
     public static UIElement CreateBars(MusicController controller)
     {
         var fill = new SolidColorBrush(Colors.White);
-        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Height = 16 };
-        var storyboard = new Storyboard();
-        var random = new Random(7);
-
+        var panel = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2, Height = BarHeight };
+        var bars = new List<Border>();
         for (int i = 0; i < BarCount; i++)
         {
-            var scale = new ScaleTransform { ScaleY = 0.3 };
-            panel.Children.Add(new Border
+            var bar = new Border
             {
-                Width = 3,
-                Height = 16,
-                CornerRadius = new CornerRadius(1.5),
+                Width = BarWidth,
+                Height = BarHeight,
+                CornerRadius = new CornerRadius(BarWidth / 2),
                 Background = fill,
-                RenderTransform = scale,
-                RenderTransformOrigin = new Windows.Foundation.Point(0.5, 1),
-            });
-
-            // Each bar bounces at its own pace, so they never move in lockstep.
-            var bounce = new DoubleAnimation
-            {
-                From = 0.25,
-                To = 0.6 + random.NextDouble() * 0.4,
-                Duration = TimeSpan.FromMilliseconds(320 + random.Next(0, 300)),
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut },
             };
-            Storyboard.SetTarget(bounce, scale);
-            Storyboard.SetTargetProperty(bounce, "ScaleY");
-            storyboard.Children.Add(bounce);
+            bars.Add(bar);
+            panel.Children.Add(bar);
         }
 
         void Update()
@@ -75,7 +61,33 @@ internal static class MusicCompactViews
         controller.Changed += Update;
         Update();
 
-        storyboard.Begin();
+        // A smooth animation redraws the island 60 times a second, and WinUI composes in the app's
+        // own process: measured at about 9% of a core while music plays, against under 1% still.
+        // Equalizer-style steps about ten times a second look the part for a fraction of that.
+        // They run only while the bars are on screen: the island takes them out of the tree whenever
+        // the compact view is hidden.
+        var visuals = bars.Select(ElementCompositionPreview.GetElementVisual).ToList();
+        foreach (Visual visual in visuals) visual.CenterPoint = new Vector3(BarWidth / 2, BarHeight, 0); // grow up from the bottom
+
+        var random = new Random();
+        var levels = new float[BarCount];
+        var timer = panel.DispatcherQueue.CreateTimer();
+        timer.Interval = BarStep;
+        timer.Tick += (_, _) =>
+        {
+            for (int i = 0; i < BarCount; i++)
+            {
+                // Drift toward a new random height rather than jumping anywhere, so it reads as music.
+                float target = 0.25f + (float)random.NextDouble() * 0.75f;
+                levels[i] = levels[i] * 0.35f + target * 0.65f;
+                visuals[i].Scale = new Vector3(1, levels[i], 1);
+            }
+        };
+        panel.Loaded += (_, _) => timer.Start();
+        panel.Unloaded += (_, _) => timer.Stop();
         return panel;
     }
+
+    /// <summary>How often the bars change height.</summary>
+    private static readonly TimeSpan BarStep = TimeSpan.FromMilliseconds(100);
 }

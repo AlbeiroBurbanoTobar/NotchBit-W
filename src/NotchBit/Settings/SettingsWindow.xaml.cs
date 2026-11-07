@@ -10,20 +10,23 @@ namespace NotchBit.Settings;
 public sealed partial class SettingsWindow : Window
 {
     private readonly ModuleRegistry _registry;
+    private readonly SettingsStore _settings;
     /// <summary>True while the code, not the user, sets a switch.</summary>
     private bool _isLoading;
 
-    public SettingsWindow(ModuleRegistry registry)
+    public SettingsWindow(ModuleRegistry registry, SettingsStore settings)
     {
         _registry = registry;
+        _settings = settings;
         InitializeComponent();
 
         SystemBackdrop = new MicaBackdrop();
         WindowSizing.SetAppIcon(this);
-        WindowSizing.SizeAndCenter(this, 520, 560);
+        WindowSizing.SizeAndCenter(this, 520, 680);
 
         _isLoading = true;
         StartupSwitch.IsOn = StartupRegistration.IsEnabled;
+        CaptureSwitch.IsOn = settings.HideFromCapture;
         foreach (IIslandModule module in registry.AllModules) ModulesPanel.Children.Add(BuildModuleRow(module));
         _isLoading = false;
     }
@@ -50,6 +53,11 @@ public sealed partial class SettingsWindow : Window
         row.Children.Add(toggle);
 
         return new Border { Style = (Style)Application.Current.Resources["CardStyle"], Child = row };
+    }
+
+    private void CaptureSwitch_Toggled(object sender, RoutedEventArgs e)
+    {
+        if (!_isLoading) _settings.SetHideFromCapture(CaptureSwitch.IsOn);
     }
 
     private void StartupSwitch_Toggled(object sender, RoutedEventArgs e)

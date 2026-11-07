@@ -116,6 +116,11 @@ public sealed partial class ShelfView : UserControl
             args.Data.SetStorageItems(storageItems, readOnly: true);
             await SetDragPreviewAsync(args.DragUI, items);
         }
+        catch (Exception e) when (e is System.Runtime.InteropServices.COMException or InvalidOperationException or ArgumentException)
+        {
+            // An exception here would end the process; a drag that cannot start is just cancelled.
+            args.Cancel = true;
+        }
         finally
         {
             deferral.Complete();
@@ -345,6 +350,9 @@ public sealed partial class ShelfView : UserControl
     private void Reveal_Click(object sender, RoutedEventArgs e)
     {
         if (TagOf(sender) is not { } item) return;
+        // The path goes into a command line, so make sure it is a real, well-formed one first.
+        item.Refresh();
+        if (item.IsMissing || !ShelfController.IsAcceptablePath(item.Path)) return;
         // Windows opens the containing folder with the file selected.
         TryStart(new ProcessStartInfo("explorer.exe", $"/select,\"{item.Path}\"") { UseShellExecute = true });
     }

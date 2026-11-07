@@ -32,8 +32,7 @@ public sealed partial class MusicPlayerView : UserControl
         {
             _controller.Changed -= Refresh;
             _controller.Changed += Refresh;
-            _ticker.Start();
-            Refresh();
+            Refresh(); // starts the ticker if something is playing
         };
         Unloaded += (_, _) =>
         {
@@ -47,6 +46,11 @@ public sealed partial class MusicPlayerView : UserControl
         MusicSession? session = _controller.Current;
         EmptyText.Visibility = session is null ? Visibility.Visible : Visibility.Collapsed;
         Player.Visibility = session is null ? Visibility.Collapsed : Visibility.Visible;
+
+        // A paused track does not move, so there is nothing to tick for.
+        if (session?.Info.IsPlaying == true) _ticker.Start();
+        else _ticker.Stop();
+
         if (session is null) return;
 
         NowPlayingInfo info = session.Info;

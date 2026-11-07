@@ -23,6 +23,11 @@ public sealed class ShelfController
 
         foreach (Entry entry in Load())
         {
+            // The file lives in the user's profile and anything running as the user can edit it,
+            // so take only what the shelf itself would have saved, once each.
+            if (!IsAcceptablePath(entry.Path)
+                || Items.Any(i => string.Equals(i.Path, entry.Path, StringComparison.OrdinalIgnoreCase))) continue;
+
             var item = new ShelfItem(entry.Path, entry.AddedAt);
             Items.Add(item);
             _ = LoadThumbnailAsync(item);
@@ -47,7 +52,7 @@ public sealed class ShelfController
                 continue;
             }
 
-            if (!File.Exists(path) && !Directory.Exists(path)) continue;
+            if (!IsAcceptablePath(path) || (!File.Exists(path) && !Directory.Exists(path))) continue;
             if (Items.Any(i => string.Equals(i.Path, path, StringComparison.OrdinalIgnoreCase))) continue;
 
             var item = new ShelfItem(path, DateTimeOffset.Now);
@@ -58,6 +63,21 @@ public sealed class ShelfController
 
         if (added > 0) Save();
         return added;
+    }
+
+    /// <summary>
+    /// A plain, absolute path to a file or folder, local or on a network share. Rejected: relative
+    /// paths, which would resolve against wherever the app happens to start and could point at a
+    /// program; device paths (<c>\\?\</c>, <c>\\.\</c>); and characters Windows never allows in a
+    /// name, which only a hand-edited file would contain and which could break the Explorer command line.
+    /// </summary>
+    internal static bool IsAcceptablePath(string? path)
+    {
+        if (string.IsNullOrWhiteSpace(path) || path.Length > 32_767) return false;
+        if (!System.IO.Path.IsPathFullyQualified(path)) return false;
+        if (path.StartsWith(@"\\?\", StringComparison.Ordinal) || path.StartsWith(@"\\.\", StringComparison.Ordinal)) return false;
+        if (path.IndexOfAny(['"', '<', '>', '|', '*', '?']) >= 0) return false;
+        return !path.Any(char.IsControl);
     }
 
     public void Remove(IEnumerable<ShelfItem> items)

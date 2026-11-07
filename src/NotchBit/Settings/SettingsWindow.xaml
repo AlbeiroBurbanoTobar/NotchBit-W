@@ -18,6 +18,21 @@
                     OffContent="Desactivado"
                     Toggled="StartupSwitch_Toggled" />
             </Border>
+            <Border Style="{StaticResource CardStyle}">
+                <StackPanel Spacing="4">
+                    <ToggleSwitch
+                        x:Name="CaptureSwitch"
+                        Header="Ocultar la isla al compartir pantalla y en capturas"
+                        OnContent="Activado"
+                        OffContent="Desactivado"
+                        Toggled="CaptureSwitch_Toggled" />
+                    <TextBlock
+                        Text="La isla muestra lo que escuchas y los nombres de tus archivos. Activado, no aparece en videollamadas, grabaciones ni capturas de pantalla, tampoco en las tuyas."
+                        Opacity="0.7"
+                        FontSize="12"
+                        TextWrapping="Wrap" />
+                </StackPanel>
+            </Border>
 
             <TextBlock Text="Módulos" Style="{StaticResource BodyStrongTextBlockStyle}" Margin="0,16,0,4" />
             <TextBlock

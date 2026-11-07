@@ -10,6 +10,8 @@ public sealed partial class IslandContent : UserControl
 {
     private readonly ModuleRegistry _registry;
     private string? _selectedId;
+    /// <summary>Whether the island is open; the selected page is only in the tree then.</summary>
+    private bool _isActive;
 
     public IslandContent(ModuleRegistry registry)
     {
@@ -21,6 +23,18 @@ public sealed partial class IslandContent : UserControl
 
     /// <summary>What the user drags to move the island; the window handles the moving.</summary>
     public UIElement MoveHandle => Grip;
+
+    /// <summary>
+    /// Puts the selected page in the tree while the island is open and takes it out once it closes.
+    /// Pages start their timers and updates when loaded and stop them when unloaded, so a closed
+    /// island costs nothing; the Shelf also re-checks its files each time it opens.
+    /// </summary>
+    public void SetActive(bool active)
+    {
+        if (active == _isActive) return;
+        _isActive = active;
+        Rebuild();
+    }
 
     /// <summary>Switches to a module's tab, for example the one that just received a file.</summary>
     public void Select(IIslandModule module)
@@ -60,7 +74,7 @@ public sealed partial class IslandContent : UserControl
             Tabs.Children.Add(tab);
         }
 
-        Body.Content = selected.CreateView();
+        Body.Content = _isActive ? selected.CreateView() : null;
     }
 
     private void Tab_Click(object sender, RoutedEventArgs e)

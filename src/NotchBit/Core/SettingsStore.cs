@@ -9,6 +9,8 @@ public sealed class SettingsStore
     {
         public List<string> DisabledModules { get; set; } = [];
         public IslandPlacement? Island { get; set; }
+        /// <summary>On unless turned off: the island shows what you listen to and your file names.</summary>
+        public bool HideFromCapture { get; set; } = true;
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -38,6 +40,20 @@ public sealed class SettingsStore
     {
         _data.Island = placement;
         Save();
+    }
+
+    /// <summary>Whether the island is left out of screen sharing, recordings and screenshots.</summary>
+    public bool HideFromCapture => _data.HideFromCapture;
+
+    /// <summary>Raised after <see cref="HideFromCapture"/> changes, so the island can apply it at once.</summary>
+    public event Action? HideFromCaptureChanged;
+
+    public void SetHideFromCapture(bool hide)
+    {
+        if (_data.HideFromCapture == hide) return;
+        _data.HideFromCapture = hide;
+        Save();
+        HideFromCaptureChanged?.Invoke();
     }
 
     private Data Load()

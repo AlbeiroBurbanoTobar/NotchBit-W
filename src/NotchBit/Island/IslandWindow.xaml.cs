@@ -1,3 +1,4 @@
+using System.Runtime.InteropServices;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -88,6 +89,11 @@ public sealed partial class IslandWindow : Window
         SystemBackdrop = new TransparentTintBackdrop();
         ConfigureChrome();
 
+        // The island shows what is playing and the names of the files on the shelf; keep that out
+        // of video calls and recordings unless the user says otherwise.
+        ApplyCaptureExclusion();
+        _settings.HideFromCaptureChanged += ApplyCaptureExclusion;
+
         _closeTimer = DispatcherQueue.CreateTimer();
         _closeTimer.Interval = CloseDelay;
         _closeTimer.IsRepeating = false;
@@ -104,10 +110,11 @@ public sealed partial class IslandWindow : Window
         _pointerWatch = DispatcherQueue.CreateTimer();
         _pointerWatch.Interval = TimeSpan.FromMilliseconds(300);
         _pointerWatch.Tick += (_, _) => CloseIfPointerLeft();
-        _pointerWatch.Start();
+        // Started when the island opens and stopped when it closes, so a closed island does no polling.
 
         UpdateCompactModule();
         ApplyRestState();
+        if (_compactModule is not null) AttachCompact();
         PlaceWindow(Rest().Window);
 
         _registry.Changed += OnModulesChanged;
@@ -127,12 +134,15 @@ public sealed partial class IslandWindow : Window
         Closed += (_, _) =>
         {
             Win32.DisplayChanged -= OnDisplayChanged;
+            _settings.HideFromCaptureChanged -= ApplyCaptureExclusion;
             _registry.Changed -= OnModulesChanged;
             _registry.CompactActivityChanged -= OnModulesChanged;
             _fullscreenTimer.Stop();
             _pointerWatch.Stop();
         };
     }
+
+    private void ApplyCaptureExclusion() => Win32.SetExcludedFromCapture(_hwnd, _settings.HideFromCapture);
 
     /// <summary>A context menu or flyout is its own window, so pointing at it counts as leaving the island.</summary>
     private bool HasOpenPopup() =>
@@ -305,9 +315,11 @@ public sealed partial class IslandWindow : Window
             _closeTimer.Stop();
             if (_isOpen) SetOpen(false);
             AppWindow.Hide();
+            DetachCompact();
         }
         else
         {
+            if (!_isOpen) AttachCompact();
             PlaceWindow(_windowSize);
             AppWindow.Show(activateWindow: false);
         }
@@ -329,13 +341,23 @@ public sealed partial class IslandWindow : Window
         if (module == _compactModule) return false;
 
         _compactModule = module;
-        if (module is not null)
-        {
-            CompactLeading.Content = module.CreateCompactLeading();
-            CompactTrailing.Content = module.CreateCompactTrailing();
-        }
         // When there is nothing to show, the old content stays until its fade-out ends.
         return true;
+    }
+
+    // The compact content is in the tree only while it can be seen: what it animates (the playback
+    // bars) would otherwise keep the app drawing every frame behind the open island or a fullscreen app.
+    private void AttachCompact()
+    {
+        if (_compactModule is null) return;
+        CompactLeading.Content = _compactModule.CreateCompactLeading();
+        CompactTrailing.Content = _compactModule.CreateCompactTrailing();
+    }
+
+    private void DetachCompact()
+    {
+        CompactLeading.Content = null;
+        CompactTrailing.Content = null;
     }
 
     // ---- Pointer and drag ----
@@ -385,6 +407,12 @@ public sealed partial class IslandWindow : Window
             target.ReceiveFiles(paths);
             _content.Select(target);
         }
+        catch (Exception ex) when (ex is COMException or IOException or UnauthorizedAccessException
+            or InvalidOperationException or ArgumentException)
+        {
+            // Whatever is dragged comes from another app; a malformed drop is ignored rather
+            // than allowed to take the island down (an exception here would end the process).
+        }
         finally
         {
             deferral.Complete();
@@ -408,13 +436,20 @@ public sealed partial class IslandWindow : Window
 
         if (open)
         {
+            // The pointer watch is only needed while open (see the constructor).
+            _pointerWatch.Start();
+            _content.SetActive(true);
             // Grow the window first so the pill has room to expand into.
             PlaceWindow(OpenSize);
             Pill.CornerRadius = OpenCorners;
-            Animate(OpenSize, OpenColor, offsetY: 0, contentOpacity: 1, compactOpacity: 0, onCompleted: null);
+            Animate(OpenSize, OpenColor, offsetY: 0, contentOpacity: 1, compactOpacity: 0, onCompleted: () =>
+            {
+                if (_isOpen) DetachCompact();
+            });
         }
         else
         {
+            _pointerWatch.Stop();
             GoToRest();
         }
     }
@@ -422,6 +457,7 @@ public sealed partial class IslandWindow : Window
     private void GoToRest()
     {
         RestState rest = Rest();
+        if (rest.CompactOpacity > 0) AttachCompact();
 
         // Make sure the window is big enough for the whole transition; shrink it afterwards.
         PlaceWindow(new Size(
@@ -435,11 +471,9 @@ public sealed partial class IslandWindow : Window
             RestState settled = Rest();
             Pill.CornerRadius = settled.Corners;
             PlaceWindow(settled.Window);
-            if (_compactModule is null)
-            {
-                CompactLeading.Content = null;
-                CompactTrailing.Content = null;
-            }
+            // The module pages stop their timers and updates once they leave the tree.
+            _content.SetActive(false);
+            if (_compactModule is null) DetachCompact();
         });
     }
 

@@ -18,6 +18,8 @@ public sealed class MusicController
 {
     /// <summary>Players raise events on changes; this re-sync catches seeks and missed events.</summary>
     private static readonly TimeSpan ResyncInterval = TimeSpan.FromSeconds(3);
+    /// <summary>With nothing playing there is little to miss, and Windows reports new players anyway.</summary>
+    private static readonly TimeSpan IdleResyncInterval = TimeSpan.FromSeconds(15);
 
     private readonly DispatcherQueue _ui;
     private readonly GsmtcProvider _provider = new();
@@ -156,6 +158,7 @@ public sealed class MusicController
                 Current = null;
                 Changed?.Invoke();
             }
+            UpdateResyncPace();
             return;
         }
 
@@ -177,13 +180,19 @@ public sealed class MusicController
             _artworkAttempts = 0;
         }
 
-        Current = new MusicSession(info, sameTrack ? previous!.Artwork : null, sameTrack ? previous!.Accent : null);
-        Changed?.Invoke();
+        // Only tell the views when something differs: most re-syncs read exactly what is already shown.
+        var next = new MusicSession(info, sameTrack ? previous!.Artwork : null, sameTrack ? previous!.Accent : null);
+        if (next != previous)
+        {
+            Current = next;
+            Changed?.Invoke();
+        }
+        UpdateResyncPace();
 
         // Load the artwork whenever the track has none yet and Windows offers one. Browsers send
         // the title first and the thumbnail a moment later, for the same track, so waiting for the
         // track to change would miss it.
-        if (Current.Artwork is null
+        if (Current?.Artwork is null
             && snapshot.Thumbnail is not null
             && _loadingArtworkKey != info.TrackKey
             && _artworkAttempts < MaxArtworkAttempts)
@@ -191,6 +200,12 @@ public sealed class MusicController
             _artworkAttempts++;
             _ = LoadArtworkAsync(snapshot.Thumbnail, info.TrackKey);
         }
+    }
+
+    private void UpdateResyncPace()
+    {
+        TimeSpan pace = Current?.Info.IsPlaying == true ? ResyncInterval : IdleResyncInterval;
+        if (_resync.Interval != pace) _resync.Interval = pace;
     }
 
     private async Task LoadArtworkAsync(IRandomAccessStreamReference thumbnail, string key)
@@ -207,7 +222,9 @@ public sealed class MusicController
             }
 
             // A fresh stream for each consumer, since each one reads it to the end.
-            var image = new BitmapImage();
+            // Decode at the size it is shown (104 px in the player, a bit more for high-DPI screens)
+            // instead of the source size: a 1280×720 video thumbnail is about 3.5 MB once decoded.
+            var image = new BitmapImage { DecodePixelWidth = 256 };
             await image.SetSourceAsync(await ToStreamAsync(bytes));
             Color? accent = await ArtworkPalette.DominantColorAsync(await ToStreamAsync(bytes));
 
@@ -226,9 +243,18 @@ public sealed class MusicController
         }
     }
 
+    /// <summary>
+    /// Any web page that plays media can supply the artwork, and the stream says how big it is.
+    /// Real covers are well under 1 MB; refusing anything huge keeps a hostile page from making
+    /// the app reserve gigabytes.
+    /// </summary>
+    private const ulong MaxArtworkBytes = 16 * 1024 * 1024;
+
     private static async Task<byte[]> ReadAllAsync(IRandomAccessStreamReference reference)
     {
         using IRandomAccessStreamWithContentType stream = await reference.OpenReadAsync();
+        // Counts as a failed try, so a page that keeps sending it is not read again and again.
+        if (stream.Size > MaxArtworkBytes) throw new IOException($"Artwork of {stream.Size} bytes is too large.");
         var bytes = new byte[stream.Size];
         using var reader = new DataReader(stream);
         await reader.LoadAsync((uint)stream.Size);

@@ -101,6 +101,19 @@ internal static partial class Win32
     /// <summary>Whether the primary mouse button is down anywhere on screen, which includes the middle of a drag.</summary>
     public static bool IsLeftButtonDown() => (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
+    private const uint WDA_NONE = 0x00;
+    private const uint WDA_EXCLUDEFROMCAPTURE = 0x11;
+
+    [DllImport("user32.dll")]
+    private static extern bool SetWindowDisplayAffinity(nint hWnd, uint affinity);
+
+    /// <summary>
+    /// Leaves the window out of screen sharing, recordings and screenshots (they show what is behind
+    /// it instead), or puts it back. Needs Windows 10 2004 or later; returns false where unsupported.
+    /// </summary>
+    public static bool SetExcludedFromCapture(nint hwnd, bool exclude) =>
+        SetWindowDisplayAffinity(hwnd, exclude ? WDA_EXCLUDEFROMCAPTURE : WDA_NONE);
+
     private const int QUNS_BUSY = 2;
     private const int QUNS_RUNNING_D3D_FULL_SCREEN = 3;
     private const int QUNS_PRESENTATION_MODE = 4;

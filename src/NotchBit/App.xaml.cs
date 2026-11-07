@@ -11,6 +11,7 @@ namespace NotchBit;
 public partial class App : Application
 {
     private ModuleRegistry? _registry;
+    private SettingsStore? _store;
     private IslandWindow? _island;
     private TrayIcon? _tray;
     private SettingsWindow? _settings;
@@ -23,15 +24,15 @@ public partial class App : Application
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
-        var settings = new SettingsStore();
+        _store = new SettingsStore();
         _registry = new ModuleRegistry(
             [
                 new MusicModule(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()),
                 new ShelfModule(),
             ],
-            settings);
+            _store);
 
-        _island = new IslandWindow(_registry, settings);
+        _island = new IslandWindow(_registry, _store);
         _island.ShowWithoutActivating();
 
         _tray = new TrayIcon(onSettings: ShowSettings, onRecenter: () => _island?.ResetPosition(), onAbout: ShowAbout, onQuit: Quit);
@@ -46,7 +47,7 @@ public partial class App : Application
     {
         if (_settings is null)
         {
-            _settings = new SettingsWindow(_registry!);
+            _settings = new SettingsWindow(_registry!, _store!);
             _settings.Closed += (_, _) => _settings = null;
         }
         _settings.Activate();

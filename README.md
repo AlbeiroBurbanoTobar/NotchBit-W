@@ -27,6 +27,9 @@ Status: **phase 5** — the island, the module system, music, the shelf, and set
   choice is kept in `%LOCALAPPDATA%\NotchBit\settings.json`), and **Abrir al iniciar sesión**, which
   adds or removes NotchBit from the per-user `Run` registry key (no admin rights, pointing at the
   exe that is running). The windows follow the system's light or dark theme and use Mica.
+- **Privacy**: by default the island is left out of screen sharing, recordings and screenshots
+  (Windows shows what is behind it), since it shows what you listen to and your file names.
+  **Ocultar la isla al compartir pantalla y en capturas** in Settings turns that off.
 - **About** shows the version and the credits: Albeiro J. Burbano Tobar, Alicosoft
   ([alicosoft.dev](https://alicosoft.dev)).
 - `NotchBit.exe --settings` and `--about` open those windows on start.
@@ -99,6 +102,20 @@ The island closes by watching the pointer's screen position as well as pointer e
 pointer events arrive during a drag (a file dragged out of the island never reports the pointer
 leaving). It stays open while a mouse button is down or a menu is open, since a context menu is a
 separate window and pointing at it would otherwise count as leaving.
+
+Security notes: the app makes no network connections and needs no admin rights; the only
+registry value it writes is its own entry under `HKCU\...\Run`. Everything it reads from other apps
+is treated as untrusted: titles are shown as plain text, artwork over 16 MB is refused, a malformed
+drag is ignored rather than allowed to end the process, and `shelf.json` entries are taken only if
+they are plain absolute paths (no relative paths, `\\?\` device paths or characters Windows never
+allows in names), so a tampered file cannot make the shelf open a program it never held.
+
+To stay cheap at rest, nothing runs that cannot be seen: a module's page is in the tree only while
+the island is open, the compact view only while it shows, the progress ticker only while a track
+plays, and the pointer watch only while the island is open. The playback bars step about ten times
+a second instead of animating smoothly, since WinUI composes in the app's own process and a smooth
+60 fps animation cost about 9% of a core. Measured on the dev machine: about 0.5% of one core at
+rest and about 3% while music plays with the bars showing.
 
 Fullscreen detection uses `SHQueryUserNotificationState`, the signal Windows itself uses to hold
 back notifications, polled twice a second. The same window subclass listens for `WM_DISPLAYCHANGE`
