@@ -8,6 +8,7 @@ public sealed class SettingsStore
     private sealed class Data
     {
         public List<string> DisabledModules { get; set; } = [];
+        public IslandPlacement? Island { get; set; }
     }
 
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -27,6 +28,15 @@ public sealed class SettingsStore
     public void SetDisabledModules(IEnumerable<string> ids)
     {
         _data.DisabledModules = ids.Distinct().Order().ToList();
+        Save();
+    }
+
+    /// <summary>Where the user moved the island to; <c>null</c> means centered on the primary monitor.</summary>
+    public IslandPlacement? Island => _data.Island;
+
+    public void SetIsland(IslandPlacement? placement)
+    {
+        _data.Island = placement;
         Save();
     }
 
@@ -56,4 +66,17 @@ public sealed class SettingsStore
             // Losing a setting is better than crashing the island.
         }
     }
+}
+
+/// <summary>
+/// The island's place along the top edge: which monitor (identified by its bounds, in pixels, since
+/// Windows gives monitors no stable name here) and where across it, from 0 (left) to 1 (right).
+/// </summary>
+public sealed class IslandPlacement
+{
+    public int MonitorX { get; set; }
+    public int MonitorY { get; set; }
+    public int MonitorWidth { get; set; }
+    public int MonitorHeight { get; set; }
+    public double CenterFraction { get; set; } = 0.5;
 }

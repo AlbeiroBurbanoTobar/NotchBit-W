@@ -66,12 +66,40 @@ internal static partial class Win32
         public int X, Y;
     }
 
+    private const uint MONITOR_DEFAULTTONEAREST = 2;
+
     /// <summary>Scale of the primary monitor (1.0 = 96 dpi), whichever monitor the window is on right now.</summary>
     public static double GetPrimaryMonitorScale()
     {
         nint monitor = MonitorFromPoint(new POINT { X = 0, Y = 0 }, MONITOR_DEFAULTTOPRIMARY);
         return GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpi, out _) == 0 ? dpi / 96.0 : 1.0;
     }
+
+    /// <summary>Scale of the monitor showing the given screen point (in pixels), or the nearest one.</summary>
+    public static double GetMonitorScale(int x, int y)
+    {
+        nint monitor = MonitorFromPoint(new POINT { X = x, Y = y }, MONITOR_DEFAULTTONEAREST);
+        return GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpi, out _) == 0 ? dpi / 96.0 : 1.0;
+    }
+
+    private const int VK_LBUTTON = 0x01;
+
+    [DllImport("user32.dll")]
+    private static extern bool GetCursorPos(out POINT point);
+
+    [DllImport("user32.dll")]
+    private static extern short GetAsyncKeyState(int key);
+
+    public static bool TryGetCursorPosition(out int x, out int y)
+    {
+        bool ok = GetCursorPos(out POINT point);
+        x = point.X;
+        y = point.Y;
+        return ok;
+    }
+
+    /// <summary>Whether the primary mouse button is down anywhere on screen, which includes the middle of a drag.</summary>
+    public static bool IsLeftButtonDown() => (GetAsyncKeyState(VK_LBUTTON) & 0x8000) != 0;
 
     private const int QUNS_BUSY = 2;
     private const int QUNS_RUNNING_D3D_FULL_SCREEN = 3;

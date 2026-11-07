@@ -5,13 +5,39 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
 
     <!-- The island is always black, so its content is always light, whatever the system theme. -->
-    <Grid RequestedTheme="Dark" Padding="20,14,20,16" RowSpacing="12">
+    <Grid RequestedTheme="Dark" Padding="16,12,16,14" RowSpacing="10">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto" />
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <StackPanel x:Name="Tabs" Orientation="Horizontal" Spacing="6" />
+        <Grid ColumnSpacing="6">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+
+            <StackPanel x:Name="Tabs" Orientation="Horizontal" Spacing="6" />
+
+            <!--
+                The rest of the tab row is the handle for moving the island along the top edge.
+                Transparent rather than empty, so it can be grabbed anywhere, not just on the icon.
+            -->
+            <Border
+                x:Name="Grip"
+                Grid.Column="1"
+                Background="Transparent"
+                ToolTipService.ToolTip="Arrastra para mover la isla · Doble clic para centrarla">
+                <FontIcon
+                    Glyph="&#xE76F;"
+                    FontSize="14"
+                    Opacity="0.35"
+                    HorizontalAlignment="Right"
+                    VerticalAlignment="Center"
+                    Margin="0,0,2,0" />
+            </Border>
+        </Grid>
+
         <ContentPresenter x:Name="Body" Grid.Row="1" />
     </Grid>
 </UserControl>

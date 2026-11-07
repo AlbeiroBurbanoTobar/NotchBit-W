@@ -27,6 +27,11 @@ public sealed class MusicController
     private bool _needsAnotherRefresh;
     private PendingChange? _pending;
     private string? _artworkKey;
+    /// <summary>The track whose artwork is being loaded right now, so a load is not started twice.</summary>
+    private string? _loadingArtworkKey;
+    /// <summary>Tries so far for the current track; an image that cannot be decoded is not retried forever.</summary>
+    private int _artworkAttempts;
+    private const int MaxArtworkAttempts = 3;
 
     public MusicController(DispatcherQueue ui)
     {
@@ -163,25 +168,43 @@ public sealed class MusicController
             else info = pending.Apply(info);
         }
 
-        // Keep the artwork while the same track plays; start loading a new one when it changes.
+        // Keep the artwork while the same track plays.
         MusicSession? previous = Current;
         bool sameTrack = previous is not null && info.TrackKey == _artworkKey;
         if (!sameTrack)
         {
             _artworkKey = info.TrackKey;
-            _ = LoadArtworkAsync(snapshot.Thumbnail, info.TrackKey);
+            _artworkAttempts = 0;
         }
 
         Current = new MusicSession(info, sameTrack ? previous!.Artwork : null, sameTrack ? previous!.Accent : null);
         Changed?.Invoke();
+
+        // Load the artwork whenever the track has none yet and Windows offers one. Browsers send
+        // the title first and the thumbnail a moment later, for the same track, so waiting for the
+        // track to change would miss it.
+        if (Current.Artwork is null
+            && snapshot.Thumbnail is not null
+            && _loadingArtworkKey != info.TrackKey
+            && _artworkAttempts < MaxArtworkAttempts)
+        {
+            _artworkAttempts++;
+            _ = LoadArtworkAsync(snapshot.Thumbnail, info.TrackKey);
+        }
     }
 
-    private async Task LoadArtworkAsync(IRandomAccessStreamReference? thumbnail, string key)
+    private async Task LoadArtworkAsync(IRandomAccessStreamReference thumbnail, string key)
     {
-        if (thumbnail is null) return;
+        _loadingArtworkKey = key;
         try
         {
             byte[] bytes = await ReadAllAsync(thumbnail);
+            if (bytes.Length == 0)
+            {
+                // An empty placeholder, sent before the real image is ready: not a failed try.
+                if (_artworkKey == key) _artworkAttempts--;
+                return;
+            }
 
             // A fresh stream for each consumer, since each one reads it to the end.
             var image = new BitmapImage();
@@ -196,6 +219,10 @@ public sealed class MusicController
         catch (Exception e) when (e is COMException or InvalidOperationException or ArgumentException or IOException)
         {
             // No usable artwork; the island shows a music note instead.
+        }
+        finally
+        {
+            if (_loadingArtworkKey == key) _loadingArtworkKey = null;
         }
     }
 

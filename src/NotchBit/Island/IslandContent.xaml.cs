@@ -19,6 +19,9 @@ public sealed partial class IslandContent : UserControl
         Rebuild();
     }
 
+    /// <summary>What the user drags to move the island; the window handles the moving.</summary>
+    public UIElement MoveHandle => Grip;
+
     /// <summary>Switches to a module's tab, for example the one that just received a file.</summary>
     public void Select(IIslandModule module)
     {

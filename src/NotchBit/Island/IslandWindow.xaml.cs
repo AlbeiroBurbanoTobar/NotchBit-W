@@ -3,6 +3,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
 using NotchBit.Core;
 using Windows.ApplicationModel.DataTransfer;
@@ -39,9 +40,10 @@ public sealed partial class IslandWindow : Window
     private static readonly Size CompactWindowSize = new(260, 36);
     private static readonly CornerRadius CompactCorners = new(0, 0, 14, 14);
 
-    private static readonly Size OpenSize = new(560, 230);
+    // Keep in step with ContentHost's size in IslandWindow.xaml.
+    private static readonly Size OpenSize = new(480, 210);
     private static readonly Color OpenColor = Colors.Black;
-    private static readonly CornerRadius OpenCorners = new(0, 0, 24, 24);
+    private static readonly CornerRadius OpenCorners = new(0, 0, 20, 20);
 
     private static readonly TimeSpan AnimationDuration = TimeSpan.FromMilliseconds(260);
     /// <summary>Grace period after the pointer leaves, so brushing past the edge does not close it.</summary>
@@ -50,22 +52,38 @@ public sealed partial class IslandWindow : Window
     private readonly nint _hwnd;
     private readonly DispatcherQueueTimer _closeTimer;
     private readonly DispatcherQueueTimer _fullscreenTimer;
+    private readonly DispatcherQueueTimer _pointerWatch;
     private readonly ModuleRegistry _registry;
+    private readonly SettingsStore _settings;
     private readonly IslandContent _content;
     private Storyboard? _storyboard;
     private Size _windowSize = LineWindowSize;
     private IIslandModule? _compactModule;
     private bool _isOpen;
     private bool _isHiddenForFullscreen;
+    /// <summary>Where along the top edge the island sits; <c>null</c> is the center of the primary monitor.</summary>
+    private IslandPlacement? _placement;
+    private bool _isMoving;
+    /// <summary>How far from the window's center the user grabbed it, in pixels, so it does not jump.</summary>
+    private int _grabOffsetX;
 
-    public IslandWindow(ModuleRegistry registry)
+    public IslandWindow(ModuleRegistry registry, SettingsStore settings)
     {
         InitializeComponent();
         _hwnd = WindowNative.GetWindowHandle(this);
 
         _registry = registry;
+        _settings = settings;
+        _placement = settings.Island;
         _content = new IslandContent(registry);
         ContentHost.Children.Add(_content);
+
+        UIElement handle = _content.MoveHandle;
+        handle.PointerPressed += Grip_PointerPressed;
+        handle.PointerMoved += Grip_PointerMoved;
+        handle.PointerReleased += Grip_PointerEnded;
+        handle.PointerCaptureLost += Grip_PointerEnded;
+        handle.DoubleTapped += (_, _) => ResetPosition();
 
         SystemBackdrop = new TransparentTintBackdrop();
         ConfigureChrome();
@@ -73,7 +91,20 @@ public sealed partial class IslandWindow : Window
         _closeTimer = DispatcherQueue.CreateTimer();
         _closeTimer.Interval = CloseDelay;
         _closeTimer.IsRepeating = false;
-        _closeTimer.Tick += (_, _) => SetOpen(false);
+        _closeTimer.Tick += (_, _) =>
+        {
+            // A pressed button means a drag or a slider scrub is under way; closing now would cut it short.
+            if (Win32.IsLeftButtonDown() || HasOpenPopup()) _closeTimer.Start();
+            // The pointer can be back over the island by now, for example after picking from a menu.
+            else if (!IsPointerInside()) SetOpen(false);
+        };
+
+        // Pointer events stop during a drag, and a file dragged out of the island never reports the
+        // pointer leaving, so while open, also check where the pointer is.
+        _pointerWatch = DispatcherQueue.CreateTimer();
+        _pointerWatch.Interval = TimeSpan.FromMilliseconds(300);
+        _pointerWatch.Tick += (_, _) => CloseIfPointerLeft();
+        _pointerWatch.Start();
 
         UpdateCompactModule();
         ApplyRestState();
@@ -82,8 +113,9 @@ public sealed partial class IslandWindow : Window
         _registry.Changed += OnModulesChanged;
         _registry.CompactActivityChanged += OnModulesChanged;
 
-        // Monitors added or removed, resolution or scale changed: stay centered on the primary one.
-        // Re-placing is deferred, since this fires inside the window procedure.
+        // Monitors added or removed, resolution or scale changed: stay where the user put the island,
+        // or fall back to the primary monitor if that one is gone. Deferred, since this fires inside
+        // the window procedure.
         Win32.DisplayChanged += OnDisplayChanged;
 
         // There is no notification for "an app went fullscreen", so check a few times a second.
@@ -98,7 +130,30 @@ public sealed partial class IslandWindow : Window
             _registry.Changed -= OnModulesChanged;
             _registry.CompactActivityChanged -= OnModulesChanged;
             _fullscreenTimer.Stop();
+            _pointerWatch.Stop();
         };
+    }
+
+    /// <summary>A context menu or flyout is its own window, so pointing at it counts as leaving the island.</summary>
+    private bool HasOpenPopup() =>
+        Content?.XamlRoot is { } root && VisualTreeHelper.GetOpenPopupsForXamlRoot(root).Count > 0;
+
+    private void CloseIfPointerLeft()
+    {
+        if (!_isOpen || Win32.IsLeftButtonDown() || HasOpenPopup() || IsPointerInside()) return;
+
+        _closeTimer.Stop();
+        SetOpen(false);
+    }
+
+    /// <summary>Whether the mouse is over the island's window, going by screen position rather than pointer events.</summary>
+    private bool IsPointerInside()
+    {
+        if (!Win32.TryGetCursorPosition(out int x, out int y)) return false;
+
+        PointInt32 origin = AppWindow.Position;
+        SizeInt32 size = AppWindow.Size;
+        return x >= origin.X && x < origin.X + size.Width && y >= origin.Y && y < origin.Y + size.Height;
     }
 
     public void ShowWithoutActivating() => AppWindow.Show(activateWindow: false);
@@ -143,19 +198,94 @@ public sealed partial class IslandWindow : Window
         CompactHost.Visibility = rest.CompactOpacity > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>Sizes the window to <paramref name="size"/> (in DIPs), centered at the top of the primary screen.</summary>
+    /// <summary>
+    /// Sizes the window to <paramref name="size"/> (in DIPs) and puts it at the top of its monitor,
+    /// centered on the island's place along that edge.
+    /// </summary>
     private void PlaceWindow(Size size)
     {
         _windowSize = size;
-        // Use the primary monitor's scale, not the window's: right after a monitor change the
-        // window can still carry the old monitor's DPI.
-        double scale = Win32.GetPrimaryMonitorScale();
-        RectInt32 screen = DisplayArea.Primary.OuterBounds;
+        RectInt32 screen = CurrentScreen();
+        // Use that monitor's own scale, not the window's: right after a move or a monitor change
+        // the window can still carry the old monitor's DPI.
+        double scale = ScaleOf(screen);
 
         int width = (int)Math.Round(size.Width * scale);
         int height = (int)Math.Round(size.Height * scale);
-        int x = screen.X + (screen.Width - width) / 2;
+        int center = screen.X + (int)Math.Round((_placement?.CenterFraction ?? 0.5) * screen.Width);
+        int x = Math.Clamp(center - width / 2, screen.X, screen.X + screen.Width - width);
         AppWindow.MoveAndResize(new RectInt32(x, screen.Y, width, height));
+    }
+
+    /// <summary>The monitor the island lives on: the one it was moved to if still connected, else the primary.</summary>
+    private RectInt32 CurrentScreen()
+    {
+        if (_placement is { } p)
+        {
+            // Look up the monitor under the saved one's center. (Enumerating DisplayArea.FindAll()
+            // crashes the app with E_NOINTERFACE, so it is not used.)
+            var center = new PointInt32(p.MonitorX + p.MonitorWidth / 2, p.MonitorY + p.MonitorHeight / 2);
+            if (DisplayArea.GetFromPoint(center, DisplayAreaFallback.None) is { } area)
+            {
+                RectInt32 b = area.OuterBounds;
+                if (b.X == p.MonitorX && b.Y == p.MonitorY && b.Width == p.MonitorWidth && b.Height == p.MonitorHeight)
+                    return b;
+            }
+        }
+        return DisplayArea.Primary.OuterBounds;
+    }
+
+    private static double ScaleOf(RectInt32 screen) =>
+        Win32.GetMonitorScale(screen.X + screen.Width / 2, screen.Y + screen.Height / 2);
+
+    // ---- Moving along the top edge ----
+
+    private void Grip_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        if (!e.GetCurrentPoint(null).Properties.IsLeftButtonPressed || !Win32.TryGetCursorPosition(out int x, out _)) return;
+
+        _isMoving = true;
+        _grabOffsetX = x - (AppWindow.Position.X + AppWindow.Size.Width / 2);
+        _content.MoveHandle.CapturePointer(e.Pointer);
+        e.Handled = true;
+    }
+
+    private void Grip_PointerMoved(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMoving || !Win32.TryGetCursorPosition(out int x, out int y)) return;
+
+        // Whichever monitor the pointer is over; the island always hugs its top edge.
+        RectInt32 screen = DisplayArea.GetFromPoint(new PointInt32(x, y), DisplayAreaFallback.Nearest).OuterBounds;
+
+        // Keep the open island fully on screen, so it stays centered over the resting line.
+        int halfOpen = (int)Math.Round(OpenSize.Width * ScaleOf(screen) / 2);
+        int center = Math.Clamp(x - _grabOffsetX, screen.X + halfOpen, screen.X + screen.Width - halfOpen);
+
+        _placement = new IslandPlacement
+        {
+            MonitorX = screen.X,
+            MonitorY = screen.Y,
+            MonitorWidth = screen.Width,
+            MonitorHeight = screen.Height,
+            CenterFraction = (center - screen.X) / (double)screen.Width,
+        };
+        PlaceWindow(_windowSize);
+    }
+
+    private void Grip_PointerEnded(object sender, PointerRoutedEventArgs e)
+    {
+        if (!_isMoving) return;
+        _isMoving = false;
+        _content.MoveHandle.ReleasePointerCaptures();
+        _settings.SetIsland(_placement);
+    }
+
+    /// <summary>Puts the island back at the center of the primary monitor.</summary>
+    public void ResetPosition()
+    {
+        _placement = null;
+        _settings.SetIsland(null);
+        PlaceWindow(_windowSize);
     }
 
     private void OnDisplayChanged()

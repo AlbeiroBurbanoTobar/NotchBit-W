@@ -35,8 +35,8 @@
                 <!-- Laid out at the full open size and faded in, so it never reflows while the pill grows. -->
                 <Grid
                     x:Name="ContentHost"
-                    Width="560"
-                    Height="230"
+                    Width="480"
+                    Height="210"
                     HorizontalAlignment="Center"
                     VerticalAlignment="Top"
                     Opacity="0"
